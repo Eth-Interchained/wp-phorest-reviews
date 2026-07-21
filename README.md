@@ -6,6 +6,7 @@ Atelier-themed landing widget + full paginated `/reviews` page, pulled read-only
 
 - **Read-only.** Pulls reviews only — no booking writeback, no payments (Phorest doesn't expose PhorestPay via the API anyway).
 - **Resilient.** Fresh cache → last-good snapshot → the Atelier theme's original hardcoded review block. The site never blanks when Phorest is unreachable.
+- **Artist visibility by name.** Add former artists under Settings → Phorest Reviews → Hidden artists. Matching reviews disappear before cards, counts, averages, and filter options are generated; Atelier mirrors the list and honors it in the hardcoded fallback even if the plugin is later disabled.
 - **Encrypted at rest.** Credentials are AES-256-GCM encrypted in `wp_options`; the key lives in a PHP-guarded data file under `wp-content/` (survives plugin updates, direct HTTP requests exit before the key bytes).
 - **Honest SEO.** Optional schema.org ItemList of the visible reviews. No self-serving LocalBusiness AggregateRating rich-result claim.
 - **PHP 7.4 / 8.1 / 8.3.** No Composer, no Python, no external runtime — pure WordPress.
