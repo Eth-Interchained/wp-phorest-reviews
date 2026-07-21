@@ -37,3 +37,6 @@ jobs:
 
       - name: Verify no syntax errors in main plugin file
         run: php -l wp-phorest-reviews.php
+
+      - name: Run crypto, API, cache, fallback, and renderer smoke tests
+        run: php tests/smoke.php

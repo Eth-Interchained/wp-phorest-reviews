@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Phorest Reviews
  * Plugin URI:        https://github.com/Eth-Interchained/wp-phorest-reviews
- * Description:       Stream live client reviews from your Phorest salon POS into WordPress — homepage strip + full /reviews page. Read-only, AES-256-GCM encrypted credentials, last-good cache so the site never blanks when Phorest is unreachable.
- * Version:           0.1.0
+ * Description:       Stream live client reviews from Phorest into WordPress — Atelier landing widget + paginated /reviews page, encrypted credentials, and last-good resilience.
+ * Version:           0.2.0
  * Requires at least: 5.6
  * Requires PHP:      7.4
  * Author:            Interchained LLC
@@ -18,7 +18,7 @@ declare(strict_types=1);
 
 defined('ABSPATH') || exit;
 
-define('PHOREST_REVIEWS_VERSION', '0.1.0');
+define('PHOREST_REVIEWS_VERSION', '0.2.0');
 define('PHOREST_REVIEWS_SLUG', 'phorest-reviews');
 define('PHOREST_REVIEWS_OPTION', 'phorest_reviews_settings');
 define('PHOREST_REVIEWS_KEYFILE_OPTION', 'phorest_reviews_keyfile_path');
@@ -71,7 +71,22 @@ function phorest_reviews_get_setting(string $key, $default = null)
     }
 
     $options = get_option(PHOREST_REVIEWS_OPTION, []);
-    return $options[$key] ?? $default;
+    $value   = $options[$key] ?? $default;
+
+    // Credentials are AES-256-GCM ciphertext in wp_options. Decrypt only at
+    // the point of use; never write plaintext back to the database.
+    if (in_array($key, ['api_user', 'api_password'], true) && is_string($value) && '' !== $value) {
+        try {
+            return Phorest_Reviews_Crypto::decrypt($value);
+        } catch (RuntimeException $e) {
+            if (function_exists('error_log')) {
+                error_log('[phorest-reviews] credential decrypt failed: ' . $e->getMessage());
+            }
+            return $default;
+        }
+    }
+
+    return $value;
 }
 
 /**
@@ -99,6 +114,13 @@ add_action('init', function (): void {
     add_shortcode('phorest_reviews_page', [Phorest_Reviews_Render::class, 'shortcode_reviews_page']);
 });
 
+// Native classic-theme widget for Appearance → Widgets. Page builders can
+// use [phorest_reviews_home]; both paths render the same Atelier surface.
+add_action('widgets_init', function (): void {
+    require_once __DIR__ . '/includes/class-phorest-reviews-widget.php';
+    register_widget(Phorest_Reviews_Widget::class);
+});
+
 // Assets register on wp_enqueue_scripts (enqueued lazily by shortcodes).
 add_action('wp_enqueue_scripts', function (): void {
     wp_register_style(
@@ -121,6 +143,14 @@ add_action('wp_enqueue_scripts', function (): void {
  * store encrypted creds from minute one. Non-fatal — settings page re-attempts
  * if missing.
  */
+add_filter('cron_schedules', function (array $schedules): array {
+    $schedules['phorest_reviews_30_minutes'] = [
+        'interval' => 30 * MINUTE_IN_SECONDS,
+        'display'  => 'Every 30 minutes (Phorest Reviews)',
+    ];
+    return $schedules;
+});
+
 register_activation_hook(__FILE__, function (): void {
     try {
         Phorest_Reviews_Crypto::ensure_key_file();
@@ -130,4 +160,11 @@ register_activation_hook(__FILE__, function (): void {
             error_log('[phorest-reviews] activation key-file warning: ' . $e->getMessage());
         }
     }
+    if (!wp_next_scheduled('phorest_reviews_refresh')) {
+        wp_schedule_event(time() + 60, 'phorest_reviews_30_minutes', 'phorest_reviews_refresh');
+    }
+});
+
+register_deactivation_hook(__FILE__, function (): void {
+    wp_clear_scheduled_hook('phorest_reviews_refresh');
 });
