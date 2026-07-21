@@ -1,0 +1,140 @@
+/* Phorest Reviews — frontend styles.
+ * Clean, salon-appropriate. No opinionated brand colors — inherits theme
+ * typography and uses restrained neutrals so it blends into any WP theme.
+ */
+
+.phorest-reviews-home,
+.phorest-reviews-page {
+    --ph-stars: #c89b3c; /* warm gold, readable on light/dark */
+    --ph-meta: #6b7280;
+    --ph-card-bg: #ffffff;
+    --ph-card-border: #e5e7eb;
+    --ph-radius: 8px;
+    --ph-gap: 1.25rem;
+}
+
+.phorest-reviews-home__title,
+.phorest-reviews-page h1 {
+    font-size: 1.5rem;
+    margin: 0 0 0.25rem;
+}
+
+.phorest-reviews-home__subtitle,
+.phorest-reviews-page__aggregate {
+    color: var(--ph-meta);
+    font-size: 0.95rem;
+    margin: 0 0 1rem;
+}
+
+.phorest-reviews-home__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: var(--ph-gap);
+}
+
+.phorest-review {
+    background: var(--ph-card-bg);
+    border: 1px solid var(--ph-card-border);
+    border-radius: var(--ph-radius);
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.phorest-review__stars {
+    color: var(--ph-stars);
+    font-size: 1.1rem;
+    letter-spacing: 2px;
+    line-height: 1;
+}
+
+.phorest-review__text {
+    margin: 0;
+    font-size: 0.95rem;
+    line-height: 1.55;
+    flex: 1;
+}
+
+.phorest-review__text p {
+    margin: 0 0 0.6rem;
+}
+.phorest-review__text p:last-child {
+    margin-bottom: 0;
+}
+
+.phorest-review__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4em 0.9em;
+    font-size: 0.82rem;
+    color: var(--ph-meta);
+    align-items: baseline;
+}
+
+.phorest-review__author {
+    font-weight: 600;
+    color: #374151;
+}
+
+.phorest-reviews-home__cta {
+    margin-top: 1.25rem;
+}
+.phorest-reviews-home__cta a {
+    font-weight: 600;
+    text-decoration: none;
+}
+.phorest-reviews-home__cta a:hover {
+    text-decoration: underline;
+}
+
+/* Reviews page */
+.phorest-reviews-page__filters {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 1rem 0 1.5rem;
+    padding: 0.85rem 1rem;
+    background: var(--ph-card-bg);
+    border: 1px solid var(--ph-card-border);
+    border-radius: var(--ph-radius);
+}
+.phorest-reviews-page__filters select {
+    min-width: 140px;
+}
+.phorest-reviews-page__list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: var(--ph-gap);
+}
+.phorest-reviews-page__none {
+    grid-column: 1 / -1;
+    color: var(--ph-meta);
+}
+
+.phorest-reviews-empty {
+    padding: 1rem;
+    border: 1px dashed var(--ph-card-border);
+    border-radius: var(--ph-radius);
+    color: var(--ph-meta);
+}
+
+@media (prefers-color-scheme: dark) {
+    .phorest-reviews-home,
+    .phorest-reviews-page {
+        --ph-card-bg: #1f2937;
+        --ph-card-border: #374151;
+        --ph-meta: #9ca3af;
+    }
+    .phorest-review__author {
+        color: #f3f4f6;
+    }
+}
+
+@media (max-width: 600px) {
+    .phorest-reviews-home__grid,
+    .phorest-reviews-page__list {
+        grid-template-columns: 1fr;
+    }
+}
