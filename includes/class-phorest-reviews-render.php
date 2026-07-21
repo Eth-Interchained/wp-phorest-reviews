@@ -41,8 +41,9 @@ class Phorest_Reviews_Render
         $count      = max(1, min(6, (int) $atts['count']));
         $min_rating = max(1, min(5, (int) $atts['min_rating']));
 
-        $data = Phorest_Reviews_Cache::get_reviews();
-        $pool = array_values(array_filter($data['reviews'], function (array $r) use ($min_rating): bool {
+        $data    = Phorest_Reviews_Cache::get_reviews();
+        $reviews = self::visible_reviews($data['reviews']);
+        $pool    = array_values(array_filter($reviews, function (array $r) use ($min_rating): bool {
             return $r['rating'] >= $min_rating && '' !== trim($r['text']);
         }));
         $shown = array_slice($pool, 0, $count);
@@ -51,7 +52,7 @@ class Phorest_Reviews_Render
             return self::empty_state($data['source']);
         }
 
-        $agg = self::aggregate($data['reviews']);
+        $agg = self::aggregate($reviews);
         wp_enqueue_style('phorest-reviews');
 
         ob_start();
@@ -96,7 +97,7 @@ class Phorest_Reviews_Render
         ], $atts, 'phorest_reviews_page');
 
         $data    = Phorest_Reviews_Cache::get_reviews();
-        $reviews = $data['reviews'];
+        $reviews = self::visible_reviews($data['reviews']);
 
         if ([] === $reviews) {
             return self::empty_state($data['source']);
@@ -337,6 +338,24 @@ class Phorest_Reviews_Render
     }
 
     // ---------------------------------------------------------------
+
+    /**
+     * Remove reviews attributed to artists hidden in plugin settings.
+     * Filtering happens before counts, aggregates, cards, and filter options,
+     * so former artists leave no public trace on either surface.
+     *
+     * @param array $reviews Raw normalized review list.
+     * @return array
+     */
+    private static function visible_reviews(array $reviews): array
+    {
+        return array_values(array_filter($reviews, function (array $review): bool {
+            return !Phorest_Reviews_Visibility::is_hidden(
+                (string) ($review['staffFirstName'] ?? ''),
+                (string) ($review['staffLastName'] ?? '')
+            );
+        }));
+    }
 
     /**
      * Compute average + count from a review set.

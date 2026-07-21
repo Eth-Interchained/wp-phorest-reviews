@@ -97,6 +97,12 @@ class Phorest_Reviews_Settings
             return;
         }
 
+        $hidden_input = (string) ($raw['hidden_artist_names'] ?? '');
+        $hidden_names = preg_split('/[\r\n,]+/', $hidden_input);
+        $hidden_names = array_values(array_unique(array_filter(array_map(function ($name): string {
+            return sanitize_text_field(trim((string) $name));
+        }, is_array($hidden_names) ? $hidden_names : []))));
+
         // Sanitize non-credential fields.
         $clean = [
             'base_url'       => esc_url_raw(trim($raw['base_url'] ?? '')),
@@ -105,8 +111,9 @@ class Phorest_Reviews_Settings
             'cache_ttl'      => max(60, (int) ($raw['cache_ttl'] ?? 1800)),
             'homepage_count' => max(1, min(6, (int) ($raw['homepage_count'] ?? 3))),
             'min_rating'     => max(1, min(5, (int) ($raw['min_rating'] ?? 4))),
-            'enable_jsonld'  => isset($raw['enable_jsonld']) ? 1 : 0,
-            'timeout'        => max(5, min(120, (int) ($raw['timeout'] ?? 30))),
+            'enable_jsonld'       => isset($raw['enable_jsonld']) ? 1 : 0,
+            'hidden_artist_names' => $hidden_names,
+            'timeout'             => max(5, min(120, (int) ($raw['timeout'] ?? 30))),
         ];
 
         // Credentials: only re-encrypt if a new value was typed.
@@ -135,6 +142,13 @@ class Phorest_Reviews_Settings
         }
 
         update_option(PHOREST_REVIEWS_OPTION, $clean, false);
+
+        /**
+         * Let an active theme mirror the visibility list for its static
+         * fallback. The Atelier theme stores its own copy so former artists
+         * remain hidden even if this plugin is later deactivated or removed.
+         */
+        do_action('phorest_reviews_hidden_artists_updated', $hidden_names);
 
         add_action('admin_notices', function (): void {
             echo '<div class="notice notice-success is-dismissible"><p>Settings saved. Credentials encrypted at rest.</p></div>';
@@ -231,6 +245,23 @@ class Phorest_Reviews_Settings
         $user_placeholder = $val('api_user') ? 'Saved — leave blank to keep' : 'global/you@salon.com';
         $pass_placeholder = $val('api_password') ? 'Saved — leave blank to keep' : '';
         $branches = get_transient('phorest_reviews_branches');
+        $hidden_names = is_array($opts['hidden_artist_names'] ?? null) ? $opts['hidden_artist_names'] : [];
+        $hidden_names_text = implode("\n", $hidden_names);
+
+        // Surface names already seen in the cached Phorest payload so the
+        // admin can copy exact spellings without exposing client data.
+        $snapshot = get_transient(PHOREST_REVIEWS_TRANSIENT);
+        if (!is_array($snapshot)) {
+            $snapshot = get_option(PHOREST_REVIEWS_LASTGOOD_OPTION, []);
+        }
+        $detected_artist_names = [];
+        foreach (($snapshot['reviews'] ?? []) as $review) {
+            $artist = trim((string) ($review['staffFirstName'] ?? '') . ' ' . (string) ($review['staffLastName'] ?? ''));
+            if ('' !== $artist) {
+                $detected_artist_names[Phorest_Reviews_Visibility::normalize($artist)] = $artist;
+            }
+        }
+        natcasesort($detected_artist_names);
         ?>
         <div class="wrap">
             <h1>Phorest Reviews</h1>
@@ -316,6 +347,16 @@ class Phorest_Reviews_Settings
                                 <?php endfor; ?>
                             </select>
                             <p class="description">Mint's live distribution is 906×5★, 3×4★, 3×3★, 2×2★ — the 4★ default shows 909 and keeps five lower-rated reviews off the landing widget (they remain visible on /reviews).</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="pr_hidden_artist_names">Hidden artists</label></th>
+                        <td>
+                            <textarea name="phorest[hidden_artist_names]" id="pr_hidden_artist_names" class="large-text" rows="6" placeholder="Sonia Taylor&#10;Former Artist Name"><?php echo esc_textarea($hidden_names_text); ?></textarea>
+                            <p class="description">One full artist name per line (case-insensitive exact match). Matching reviews are removed before homepage/page cards, counts, averages, and artist filters. The reviews remain in Phorest and in the private cache.</p>
+                            <?php if ([] !== $detected_artist_names): ?>
+                                <p class="description"><strong>Names detected in the current cache:</strong> <?php echo esc_html(implode(' · ', $detected_artist_names)); ?></p>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <tr>

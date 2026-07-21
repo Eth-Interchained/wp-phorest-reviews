@@ -78,7 +78,7 @@
 }
 .phorest-review:nth-child(even) { background: var(--pr-stone); }
 .phorest-review__header {
-    align-items: center; display: flex; gap: .8rem; justify-content: space-between;
+    align-items: center; display: flex; flex-wrap: wrap; gap: .8rem; justify-content: space-between;
 }
 .phorest-review__stars, .phorest-stars {
     color: var(--pr-forest); font-size: .78rem; letter-spacing: .18em;
@@ -89,10 +89,13 @@
     text-transform: uppercase; white-space: nowrap;
 }
 .phorest-review__verified::before { content: '✓'; margin-right: .42rem; }
-.phorest-review__text {
-    color: var(--pr-forest); flex: 1; font-family: var(--pr-display);
-    font-size: clamp(1.05rem, 1.5vw, 1.3rem); font-style: italic;
-    font-weight: 300; line-height: 1.55; margin: 0; overflow-wrap: anywhere;
+.phorest-reviews-home .phorest-review__text,
+.phorest-reviews-page .phorest-review__text {
+    border: 0 !important; color: var(--pr-forest) !important; flex: 1;
+    font-family: var(--pr-display); font-size: clamp(1.05rem, 1.5vw, 1.3rem);
+    font-style: italic; font-weight: 300; line-height: 1.55;
+    margin: 0 !important; max-width: none !important; overflow-wrap: anywhere;
+    padding: 0 !important;
 }
 .phorest-review__text::before { content: '“'; }
 .phorest-review__text::after { content: '”'; }
@@ -223,6 +226,33 @@
 }
 .phorest-reviews-empty p { margin: 0; }
 .widget_phorest_reviews_landing { margin: 0 !important; padding: 0 !important; }
+
+/* Break the reviews surfaces out of legacy content-column wrappers on desktop.
+ * Mobile already renders edge-to-edge correctly, so this only applies above
+ * the Atelier tablet breakpoint. */
+@media (min-width: 1001px) {
+    .entry-content .phorest-reviews-home,
+    .entry-content .phorest-reviews-page,
+    .wp-block-group__inner-container .phorest-reviews-home,
+    .wp-block-group__inner-container .phorest-reviews-page,
+    .widget_phorest_reviews_landing > .phorest-reviews-home {
+        left: 50%;
+        margin-left: -50vw !important;
+        margin-right: -50vw !important;
+        max-width: none !important;
+        position: relative;
+        right: 50%;
+        width: 100vw !important;
+    }
+
+    .phorest-reviews-home__inner,
+    .phorest-reviews-page__hero-inner,
+    .phorest-reviews-page__body {
+        max-width: min(var(--pr-max), calc(100vw - 4rem));
+        width: 100%;
+    }
+}
+
 @media (max-width: 1000px) {
     .phorest-reviews-home__grid, .phorest-reviews-page__list { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .phorest-reviews-page__filters { grid-template-columns: 1fr 1fr; }

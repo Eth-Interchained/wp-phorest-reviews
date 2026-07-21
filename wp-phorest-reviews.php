@@ -3,7 +3,7 @@
  * Plugin Name:       Phorest Reviews
  * Plugin URI:        https://github.com/Eth-Interchained/wp-phorest-reviews
  * Description:       Stream live client reviews from Phorest into WordPress — Atelier landing widget + paginated /reviews page, encrypted credentials, and last-good resilience.
- * Version:           0.2.0
+ * Version:           0.2.1
  * Requires at least: 5.6
  * Requires PHP:      7.4
  * Author:            Interchained LLC
@@ -18,7 +18,7 @@ declare(strict_types=1);
 
 defined('ABSPATH') || exit;
 
-define('PHOREST_REVIEWS_VERSION', '0.2.0');
+define('PHOREST_REVIEWS_VERSION', '0.2.1');
 define('PHOREST_REVIEWS_SLUG', 'phorest-reviews');
 define('PHOREST_REVIEWS_OPTION', 'phorest_reviews_settings');
 define('PHOREST_REVIEWS_KEYFILE_OPTION', 'phorest_reviews_keyfile_path');
@@ -28,6 +28,7 @@ define('PHOREST_REVIEWS_LASTGOOD_OPTION', 'phorest_reviews_last_good');
 require_once __DIR__ . '/includes/class-phorest-reviews-crypto.php';
 require_once __DIR__ . '/includes/class-phorest-reviews-client.php';
 require_once __DIR__ . '/includes/class-phorest-reviews-cache.php';
+require_once __DIR__ . '/includes/class-phorest-reviews-visibility.php';
 require_once __DIR__ . '/includes/class-phorest-reviews-render.php';
 require_once __DIR__ . '/includes/class-phorest-reviews-settings.php';
 

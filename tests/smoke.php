@@ -33,6 +33,18 @@ $GLOBALS['wp_transients'] = [];
 $GLOBALS['remote_pages'] = [];
 $GLOBALS['remote_fail'] = false;
 $GLOBALS['enqueued_styles'] = [];
+$GLOBALS['phorest_test_settings'] = [
+    'base_url' => 'https://api-gateway-us.phorest.test/third-party-api-server',
+    'business_id' => 'business',
+    'branch_id' => 'branch',
+    'api_user' => 'global/test@example.com',
+    'api_password' => 'secret',
+    'cache_ttl' => 1800,
+    'homepage_count' => 3,
+    'min_rating' => 4,
+    'enable_jsonld' => false,
+    'hidden_artist_names' => [],
+];
 
 class WP_Error {
     private $message;
@@ -52,6 +64,7 @@ function esc_html($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'
 function esc_attr($v) { return esc_html($v); }
 function esc_url($v) { return (string) $v; }
 function sanitize_text_field($v) { return trim(strip_tags((string) $v)); }
+function wp_strip_all_tags($v) { return strip_tags((string) $v); }
 function sanitize_html_class($v) { return preg_replace('/[^A-Za-z0-9_-]/', '', (string) $v); }
 function wp_unslash($v) { return $v; }
 function wp_remote_request($url, $args) {
@@ -66,18 +79,7 @@ function wp_remote_retrieve_response_code($r) { return $r['response']['code']; }
 function wp_remote_retrieve_body($r) { return $r['body']; }
 function current_time($type, $gmt = false) { return '2026-07-21 01:00:00'; }
 function phorest_reviews_get_setting($key, $default = null) {
-    $settings = [
-        'base_url' => 'https://api-gateway-us.phorest.test/third-party-api-server',
-        'business_id' => 'business',
-        'branch_id' => 'branch',
-        'api_user' => 'global/test@example.com',
-        'api_password' => 'secret',
-        'cache_ttl' => 1800,
-        'homepage_count' => 3,
-        'min_rating' => 4,
-        'enable_jsonld' => false,
-    ];
-    return $settings[$key] ?? $default;
+    return $GLOBALS['phorest_test_settings'][$key] ?? $default;
 }
 function phorest_reviews_is_configured() { return true; }
 function shortcode_atts($defaults, $atts, $tag = '') { return array_merge($defaults, $atts); }
@@ -101,6 +103,7 @@ function wp_json_encode($v, $flags = 0) { return json_encode($v, $flags); }
 require_once dirname(__DIR__) . '/includes/class-phorest-reviews-crypto.php';
 require_once dirname(__DIR__) . '/includes/class-phorest-reviews-client.php';
 require_once dirname(__DIR__) . '/includes/class-phorest-reviews-cache.php';
+require_once dirname(__DIR__) . '/includes/class-phorest-reviews-visibility.php';
 require_once dirname(__DIR__) . '/includes/class-phorest-reviews-render.php';
 
 // ─── Crypto round trip + tamper detection ────────────────────────
@@ -176,6 +179,16 @@ check(strpos($page, 'phorest-reviews-page--atelier') !== false, 'reviews page em
 check(6 === substr_count($page, 'phorest-review--detailed'), 'reviews page renders only one page of cards');
 check(strpos($page, 'phorest-reviews-pagination') !== false, 'reviews page renders pagination for large datasets');
 check(strpos($page, 'aggregateRating') === false, 'JSON-LD does not claim self-serving AggregateRating');
+
+// ─── Hidden artist names: case-insensitive, everywhere ───────────
+$GLOBALS['phorest_test_settings']['hidden_artist_names'] = ['mArIsA   eVaNs'];
+$hiddenWidget = Phorest_Reviews_Render::shortcode_homepage_strip(['count' => 3, 'min_rating' => 4]);
+$hiddenPage = Phorest_Reviews_Render::shortcode_reviews_page(['per_page' => 6]);
+check(strpos($hiddenWidget, 'Marisa Evans') === false, 'hidden artist is absent from landing widget');
+check(3 === substr_count($hiddenWidget, 'phorest-review--widget'), 'landing widget backfills with visible artists');
+check(strpos($hiddenPage, 'Marisa Evans') === false, 'hidden artist is absent from reviews page cards and filter');
+check(strpos($hiddenPage, 'data-total="13"') !== false, 'counts and aggregates are based only on visible artists');
+check(strpos($hiddenPage, 'value="s1"') === false, 'hidden artist is absent from artist filter options');
 
 // Cleanup only the isolated temp files created by this test.
 Phorest_Reviews_Crypto::delete_key_file();
