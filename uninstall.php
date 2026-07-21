@@ -18,6 +18,12 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
     exit;
 }
 
+// uninstall.php is loaded directly, so bootstrap the constants normally
+// defined by the main plugin file before loading the crypto class.
+if (!defined('PHOREST_REVIEWS_KEYFILE_OPTION')) {
+    define('PHOREST_REVIEWS_KEYFILE_OPTION', 'phorest_reviews_keyfile_path');
+}
+
 // Delete the encryption key file.
 if (class_exists('Phorest_Reviews_Crypto')) {
     Phorest_Reviews_Crypto::delete_key_file();

@@ -3,7 +3,7 @@
  * Admin settings page.
  *
  * Credentials entered here are AES-256-GCM encrypted before going into
- * wp_options. The key lives in a PHP-guarded file under wp-content/.
+ * wp_options. The key lives in a hidden, data-only file under wp-content/.
  *
  * @package PhorestReviews
  */
@@ -57,9 +57,13 @@ class Phorest_Reviews_Settings
                 $this->handle_save();
                 break;
             case 'refresh':
-                Phorest_Reviews_Cache::refresh_now();
-                add_action('admin_notices', function (): void {
-                    echo '<div class="notice notice-success is-dismissible"><p>Reviews cache refreshed.</p></div>';
+                $refreshed = Phorest_Reviews_Cache::refresh_now();
+                add_action('admin_notices', function () use ($refreshed): void {
+                    if ($refreshed) {
+                        echo '<div class="notice notice-success is-dismissible"><p>Reviews cache refreshed.</p></div>';
+                    } else {
+                        echo '<div class="notice notice-error is-dismissible"><p>Refresh failed. The site will keep serving the last-good review snapshot. Check the credentials and PHP error log.</p></div>';
+                    }
                 });
                 break;
             case 'discover_branch':
@@ -99,7 +103,7 @@ class Phorest_Reviews_Settings
             'business_id'    => sanitize_text_field(trim($raw['business_id'] ?? '')),
             'branch_id'      => sanitize_text_field(trim($raw['branch_id'] ?? '')),
             'cache_ttl'      => max(60, (int) ($raw['cache_ttl'] ?? 1800)),
-            'homepage_count' => max(1, min(12, (int) ($raw['homepage_count'] ?? 4))),
+            'homepage_count' => max(1, min(6, (int) ($raw['homepage_count'] ?? 3))),
             'min_rating'     => max(1, min(5, (int) ($raw['min_rating'] ?? 4))),
             'enable_jsonld'  => isset($raw['enable_jsonld']) ? 1 : 0,
             'timeout'        => max(5, min(120, (int) ($raw['timeout'] ?? 30))),
@@ -222,8 +226,10 @@ class Phorest_Reviews_Settings
         $val  = function (string $key, string $default = '') use ($opts): string {
             return (string) ($opts[$key] ?? $default);
         };
-        // Never echo decrypted creds back into the form; show placeholder dots.
-        $cred_placeholder = '********';
+        // Never echo decrypted credentials back into the form. Blank input
+        // means "keep saved value"; entering text replaces it.
+        $user_placeholder = $val('api_user') ? 'Saved — leave blank to keep' : 'global/you@salon.com';
+        $pass_placeholder = $val('api_password') ? 'Saved — leave blank to keep' : '';
         $branches = get_transient('phorest_reviews_branches');
         ?>
         <div class="wrap">
@@ -270,11 +276,11 @@ class Phorest_Reviews_Settings
                     </tr>
                     <tr>
                         <th scope="row"><label for="pr_api_user">API username</label></th>
-                        <td><input name="phorest[api_user]" id="pr_api_user" type="text" class="regular-text" value="<?php echo esc_attr($val('api_user') ? $cred_placeholder : ''); ?>" placeholder="global/you@salon.com" autocomplete="off"></td>
+                        <td><input name="phorest[api_user]" id="pr_api_user" type="text" class="regular-text" value="" placeholder="<?php echo esc_attr($user_placeholder); ?>" autocomplete="off"></td>
                     </tr>
                     <tr>
                         <th scope="row"><label for="pr_api_password">API password</label></th>
-                        <td><input name="phorest[api_password]" id="pr_api_password" type="password" class="regular-text" value="<?php echo esc_attr($val('api_password') ? $cred_placeholder : ''); ?>" autocomplete="new-password"></td>
+                        <td><input name="phorest[api_password]" id="pr_api_password" type="password" class="regular-text" value="" placeholder="<?php echo esc_attr($pass_placeholder); ?>" autocomplete="new-password"></td>
                     </tr>
                 </table>
 
@@ -298,8 +304,8 @@ class Phorest_Reviews_Settings
                 <h2 class="title">Display</h2>
                 <table class="form-table" role="presentation">
                     <tr>
-                        <th scope="row"><label for="pr_homepage_count">Homepage strip count</label></th>
-                        <td><input name="phorest[homepage_count]" id="pr_homepage_count" type="number" min="1" max="12" value="<?php echo esc_attr((string) ($opts['homepage_count'] ?? 4)); ?>"></td>
+                        <th scope="row"><label for="pr_homepage_count">Landing-page widget count</label></th>
+                        <td><input name="phorest[homepage_count]" id="pr_homepage_count" type="number" min="1" max="6" value="<?php echo esc_attr((string) ($opts['homepage_count'] ?? 3)); ?>"></td>
                     </tr>
                     <tr>
                         <th scope="row"><label for="pr_min_rating">Minimum rating (homepage)</label></th>
@@ -309,7 +315,7 @@ class Phorest_Reviews_Settings
                                     <option value="<?php echo $r; ?>" <?php selected((int) ($opts['min_rating'] ?? 4), $r); ?>><?php echo $r; ?> star & up</option>
                                 <?php endfor; ?>
                             </select>
-                            <p class="description">Mint's reviews are 906×5★, 3×4★, 3×3★, 2×2★ — 4★ default hides the two 2★.</p>
+                            <p class="description">Mint's live distribution is 906×5★, 3×4★, 3×3★, 2×2★ — the 4★ default shows 909 and keeps five lower-rated reviews off the landing widget (they remain visible on /reviews).</p>
                         </td>
                     </tr>
                     <tr>
@@ -318,7 +324,7 @@ class Phorest_Reviews_Settings
                     </tr>
                     <tr>
                         <th scope="row">Schema.org JSON-LD</th>
-                        <td><label><input type="checkbox" name="phorest[enable_jsonld]" value="1" <?php checked((int) ($opts['enable_jsonld'] ?? 1), 1); ?>> Emit honest Review + AggregateRating markup (computed from cached Phorest reviews — no fabricated Google stars)</label></td>
+                        <td><label><input type="checkbox" name="phorest[enable_jsonld]" value="1" <?php checked((int) ($opts['enable_jsonld'] ?? 0), 1); ?>> Emit an ItemList of the visible Review nodes (off by default; no AggregateRating rich-result claim)</label></td>
                     </tr>
                 </table>
 

@@ -168,15 +168,17 @@ class Phorest_Reviews_Cache
     /**
      * Force a refresh (used by the cron hook + a settings-page button).
      */
-    public static function refresh_now(): void
+    public static function refresh_now(): bool
     {
         try {
             $data = self::pull_live();
             self::store($data);
+            return true;
         } catch (RuntimeException $e) {
             if (function_exists('error_log')) {
                 error_log('[phorest-reviews] refresh failed: ' . $e->getMessage());
             }
+            return false;
         }
     }
 }

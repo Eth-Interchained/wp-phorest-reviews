@@ -2,10 +2,11 @@
 /**
  * At-rest encryption for Phorest credentials.
  *
- * AES-256-GCM. Key lives in a PHP-guarded file under wp-content/ (NOT inside
- * the plugin dir — survives plugin updates), generated on first run with
- * random_bytes(32). The key file begins with <?php http_response_code(403); die();
- * so a direct HTTP fetch returns 403 and never serves the key as text.
+ * AES-256-GCM. Key lives in a PHP-guarded data file under wp-content/ (NOT
+ * inside the plugin dir — survives plugin updates), generated on first run
+ * with random_bytes(32). A direct HTTP request executes `<?php exit; ?>` and
+ * returns nothing. The plugin reads the file as data — it never includes or
+ * executes it — then parses the versioned base64 payload after the guard.
  *
  * THREAT MODEL (honest):
  *   ✓ Defends against DB-only attackers (SQL injection, DB backup leak,
@@ -32,20 +33,21 @@ class Phorest_Reviews_Crypto
      * Resolve the absolute path to the key file.
      *
      * Stored just above the plugin dir under wp-content/, named
-     * .phorest-reviews-key.php so it looks like PHP and is served as such
-     * (the file's first line is a die() guard). The path is also persisted
-     * in an option so relocations are detectable + repairable.
+     * .phorest-reviews-key.php. The path is persisted in an option so
+     * relocations are detectable + repairable. It has a PHP exit guard but is
+     * always parsed as data by this plugin.
      *
      * @return string Absolute path.
      */
     public static function key_file_path(): string
     {
         $cached = get_option(PHOREST_REVIEWS_KEYFILE_OPTION, '');
-        if ($cached && is_string($cached)) {
+        if ($cached && is_string($cached) && is_file($cached)) {
             return $cached;
         }
-        $candidate = trailingslashit(WP_CONTENT_DIR) . '.phorest-reviews-key.php';
-        return $candidate;
+        // A site move can leave an obsolete absolute path in wp_options.
+        // Fall back to the current wp-content directory and recache on ensure.
+        return trailingslashit(WP_CONTENT_DIR) . '.phorest-reviews-key.php';
     }
 
     /**
@@ -81,11 +83,9 @@ class Phorest_Reviews_Crypto
         $key   = random_bytes(self::KEY_LEN);
         $key64 = base64_encode($key);
 
-        // PHP guard: a direct HTTP hit executes the file and dies 403.
-        // A require/include from this plugin reads the $KEY constant.
-        $contents = "<?php http_response_code(403); die('Forbidden');\n"
-                  . "// DO NOT EDIT. Regenerate by deleting this file.\n"
-                  . "\$KEY = base64_decode('{$key64}');\n";
+        // Guarded data format. A web request exits; this class parses the raw
+        // bytes with file_get_contents() and never includes the file.
+        $contents = "<?php exit; ?>\nPHOREST-REVIEWS-KEY-V1\n{$key64}\n";
 
         // Atomic write: temp file + rename so a crash never leaves a partial.
         $tmp = $path . '.tmp-' . bin2hex(random_bytes(4));
@@ -97,6 +97,12 @@ class Phorest_Reviews_Crypto
         if (!@rename($tmp, $path)) {
             @unlink($tmp);
             throw new RuntimeException('Failed finalizing key file (rename).');
+        }
+
+        // Defense in depth for hosts that expose wp-content directly.
+        $guard = trailingslashit($parent) . 'index.php';
+        if (!is_file($guard) && is_writable($parent)) {
+            @file_put_contents($guard, "<?php\n// Silence is golden.\n", LOCK_EX);
         }
 
         update_option(PHOREST_REVIEWS_KEYFILE_OPTION, $path, false);
@@ -114,15 +120,19 @@ class Phorest_Reviews_Crypto
         if (!is_file($path)) {
             throw new RuntimeException('Key file missing — re-save settings to regenerate.');
         }
-        $KEY = null;
-        // Isolate scope: the key file defines $KEY.
-        (static function () use ($path, &$KEY): void {
-            include $path;
-        })();
-        if (!is_string($KEY) || self::KEY_LEN !== strlen($KEY)) {
+        $raw = @file_get_contents($path);
+        if (false === $raw) {
+            throw new RuntimeException('Key file exists but could not be read.');
+        }
+        $lines = preg_split('/\R/', trim($raw));
+        if (!is_array($lines) || count($lines) < 3 || '<?php exit; ?>' !== $lines[0] || 'PHOREST-REVIEWS-KEY-V1' !== $lines[1]) {
             throw new RuntimeException('Key file present but malformed — delete it and re-save settings.');
         }
-        return $KEY;
+        $key = base64_decode(trim($lines[2]), true);
+        if (!is_string($key) || self::KEY_LEN !== strlen($key)) {
+            throw new RuntimeException('Key file present but malformed — delete it and re-save settings.');
+        }
+        return $key;
     }
 
     /**

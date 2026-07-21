@@ -3,15 +3,16 @@
  * Render helpers + shortcodes.
  *
  * Two shortcodes:
- *   [phorest_reviews_home count="4" min_rating="4"]  — homepage strip
+ *   [phorest_reviews_home count="3" min_rating="4"]  — landing-page widget
  *   [phorest_reviews_page]                            — full /reviews listing
  *
  * Honesty rules (carry over from salon-platform):
  *   - schema.org Review is fine for genuine Phorest reviews.
- *   - AggregateRating is computed from the actual cached reviews — never a
- *     fabricated Google star count. Mint's facebookReview/twitterReview are
- *     all false (no Online Reputation social auto-boost), so we do NOT claim
- *     any Google/FB cross-posting.
+ *   - The visible aggregate is computed from actual cached reviews. JSON-LD
+ *     intentionally omits AggregateRating because self-serving LocalBusiness
+ *     review rich results are not eligible. No fabricated Google star count.
+ *   - Mint's facebookReview/twitterReview flags do not justify claiming any
+ *     Google/Facebook cross-posting.
  *   - Staff names come title-cased for display (raw preserved for attribution)
  *     since Phorest stores some as ALL CAPS ("ASHLEY MARTINEZ").
  *
@@ -33,44 +34,50 @@ class Phorest_Reviews_Render
     public static function shortcode_homepage_strip(array $atts): string
     {
         $atts = shortcode_atts([
-            'count'      => (int) phorest_reviews_get_setting('homepage_count', 4),
+            'count'      => (int) phorest_reviews_get_setting('homepage_count', 3),
             'min_rating' => (int) phorest_reviews_get_setting('min_rating', 4),
         ], $atts, 'phorest_reviews_home');
 
-        $count      = max(1, (int) $atts['count']);
+        $count      = max(1, min(6, (int) $atts['count']));
         $min_rating = max(1, min(5, (int) $atts['min_rating']));
 
         $data = Phorest_Reviews_Cache::get_reviews();
         $pool = array_values(array_filter($data['reviews'], function (array $r) use ($min_rating): bool {
             return $r['rating'] >= $min_rating && '' !== trim($r['text']);
         }));
-
-        // Take the newest $count.
         $shown = array_slice($pool, 0, $count);
 
         if ([] === $shown) {
             return self::empty_state($data['source']);
         }
 
+        $agg = self::aggregate($data['reviews']);
         wp_enqueue_style('phorest-reviews');
 
         ob_start();
-        echo '<section class="phorest-reviews-home" aria-label="Client reviews">';
-        echo '<h2 class="phorest-reviews-home__title">What our clients say</h2>';
-        if ($data['meta']['total'] ?? 0) {
-            $agg = self::aggregate($data['reviews']);
-            printf(
-                '<p class="phorest-reviews-home__subtitle">%1$s verified client reviews — %2$s average</p>',
-                esc_html(number_format_i18n((int) $data['meta']['total'])),
-                esc_html(number_format_i18n((float) $agg['average'], 1))
-            );
-        }
+        echo '<section class="phorest-reviews-home phorest-reviews-home--atelier" aria-label="Client reviews">';
+        echo '<div class="phorest-reviews-home__inner">';
+        echo '<header class="phorest-reviews-home__header">';
+        echo '<div>';
+        echo '<p class="phorest-reviews-eyebrow">Verified guest reviews</p>';
+        echo '<h2 class="phorest-reviews-home__title">What they’re <em>saying.</em></h2>';
+        echo '</div>';
+        printf(
+            '<div class="phorest-reviews-home__score" aria-label="%1$s out of 5 from %2$s reviews"><strong>%1$s</strong><span>%2$s client reviews via Phorest</span></div>',
+            esc_html(number_format_i18n((float) $agg['average'], 2)),
+            esc_html(number_format_i18n((int) $agg['count']))
+        );
+        echo '</header>';
         echo '<div class="phorest-reviews-home__grid">';
         foreach ($shown as $review) {
             self::render_card($review);
         }
         echo '</div>';
-        echo '<p class="phorest-reviews-home__cta"><a href="' . esc_url(self::reviews_page_url()) . '">Read all reviews →</a></p>';
+        echo '<footer class="phorest-reviews-home__footer">';
+        echo '<p>Real feedback, shared after real visits to Mint on the Avenue.</p>';
+        echo '<a class="phorest-reviews-button" href="' . esc_url(self::reviews_page_url()) . '">Read all reviews <span aria-hidden="true">→</span></a>';
+        echo '</footer>';
+        echo '</div>';
         echo '</section>';
 
         return (string) ob_get_clean();
@@ -84,7 +91,11 @@ class Phorest_Reviews_Render
      */
     public static function shortcode_reviews_page(array $atts = []): string
     {
-        $data = Phorest_Reviews_Cache::get_reviews();
+        $atts = shortcode_atts([
+            'per_page' => 18,
+        ], $atts, 'phorest_reviews_page');
+
+        $data    = Phorest_Reviews_Cache::get_reviews();
         $reviews = $data['reviews'];
 
         if ([] === $reviews) {
@@ -92,10 +103,11 @@ class Phorest_Reviews_Render
         }
 
         wp_enqueue_style('phorest-reviews');
-        wp_enqueue_script('phorest-reviews');
 
-        $staff_filter = isset($_GET['pr_staff']) ? sanitize_text_field(wp_unslash($_GET['pr_staff'])) : '';
-        $rating_filter = isset($_GET['pr_rating']) ? (int) $_GET['pr_rating'] : 0;
+        $staff_filter  = isset($_GET['pr_staff']) ? sanitize_text_field(wp_unslash($_GET['pr_staff'])) : '';
+        $rating_filter = isset($_GET['pr_rating']) ? max(0, min(5, (int) $_GET['pr_rating'])) : 0;
+        $current_page  = isset($_GET['pr_page']) ? max(1, (int) $_GET['pr_page']) : 1;
+        $per_page      = max(6, min(48, (int) $atts['per_page']));
 
         $filtered = array_values(array_filter($reviews, function (array $r) use ($staff_filter, $rating_filter): bool {
             if ($staff_filter && $r['staffId'] !== $staff_filter) {
@@ -104,30 +116,40 @@ class Phorest_Reviews_Render
             if ($rating_filter && $r['rating'] !== $rating_filter) {
                 return false;
             }
-            return true;
+            return '' !== trim($r['text']);
         }));
+
+        $filtered_count = count($filtered);
+        $total_pages    = max(1, (int) ceil($filtered_count / $per_page));
+        $current_page   = min($current_page, $total_pages);
+        $offset         = ($current_page - 1) * $per_page;
+        $visible        = array_slice($filtered, $offset, $per_page);
+        $first_result   = $filtered_count > 0 ? $offset + 1 : 0;
+        $last_result    = min($offset + $per_page, $filtered_count);
 
         $staff_list = self::derive_staff($reviews);
         $agg        = self::aggregate($reviews);
 
         ob_start();
-        echo '<div class="phorest-reviews-page" data-total="' . esc_attr((string) count($reviews)) . '">';
-
-        // Header + honest aggregate.
-        echo '<header class="phorest-reviews-page__header">';
-        printf('<h1>Client Reviews</h1>');
+        echo '<section class="phorest-reviews-page phorest-reviews-page--atelier" data-total="' . esc_attr((string) count($reviews)) . '">';
+        echo '<header class="phorest-reviews-page__hero">';
+        echo '<div class="phorest-reviews-page__hero-inner">';
+        echo '<p class="phorest-reviews-eyebrow">Certified guest reviews · Mint on the Avenue</p>';
+        echo '<h1>Trust, earned <em>one visit at a time.</em></h1>';
+        echo '<p class="phorest-reviews-page__lede">It’s never “just” hair. Read what our guests shared after sitting in the chair, meeting their artist, and experiencing Mint.</p>';
         printf(
-            '<p class="phorest-reviews-page__aggregate"><span class="phorest-stars" aria-hidden="true">%s</span> %s average from %s verified Phorest reviews</p>',
+            '<div class="phorest-reviews-page__summary"><strong>%1$s</strong><span class="phorest-review__stars" aria-hidden="true">%2$s</span><span>Average from %3$s verified Phorest reviews</span></div>',
+            esc_html(number_format_i18n((float) $agg['average'], 2)),
             self::stars_html((int) round($agg['average'])),
-            esc_html(number_format_i18n((float) $agg['average'], 1)),
             esc_html(number_format_i18n((int) $agg['count']))
         );
+        echo '</div>';
         echo '</header>';
 
-        // Filters.
+        echo '<div class="phorest-reviews-page__body">';
         echo '<form class="phorest-reviews-page__filters" method="get">';
-        echo '<select name="pr_staff">';
-        echo '<option value="">All stylists</option>';
+        echo '<label><span>Artist</span><select name="pr_staff">';
+        echo '<option value="">All artists</option>';
         foreach ($staff_list as $s) {
             printf(
                 '<option value="%s"%s>%s</option>',
@@ -136,40 +158,70 @@ class Phorest_Reviews_Render
                 esc_html($s['display'])
             );
         }
-        echo '</select>';
-        echo '<select name="pr_rating">';
+        echo '</select></label>';
+        echo '<label><span>Rating</span><select name="pr_rating">';
         echo '<option value="">All ratings</option>';
         for ($r = 5; $r >= 1; $r--) {
             printf(
-                '<option value="%d"%s>%d star</option>',
+                '<option value="%d"%s>%d star%s</option>',
                 $r,
                 selected($rating_filter, $r, false),
-                $r
+                $r,
+                1 === $r ? '' : 's'
             );
         }
-        echo '</select>';
-        echo '<button type="submit">Filter</button>';
+        echo '</select></label>';
+        echo '<button class="phorest-reviews-button" type="submit">Apply filters</button>';
+        if ($staff_filter || $rating_filter) {
+            echo '<a class="phorest-reviews-filter-reset" href="' . esc_url(remove_query_arg(['pr_staff', 'pr_rating', 'pr_page'])) . '">Clear</a>';
+        }
         echo '</form>';
 
-        // Listing.
+        printf(
+            '<p class="phorest-reviews-page__count">Showing %1$s–%2$s of %3$s reviews</p>',
+            esc_html(number_format_i18n($first_result)),
+            esc_html(number_format_i18n($last_result)),
+            esc_html(number_format_i18n($filtered_count))
+        );
+
         echo '<div class="phorest-reviews-page__list">';
-        if ([] === $filtered) {
+        if ([] === $visible) {
             echo '<p class="phorest-reviews-page__none">No reviews match those filters.</p>';
         } else {
-            foreach ($filtered as $review) {
+            foreach ($visible as $review) {
                 self::render_card($review, true);
             }
         }
         echo '</div>';
 
-        // Honest JSON-LD: schema.org Review per visible review (capped to avoid
-        // bloating the page — first 20 only). AggregateRating is computed from
-        // the FULL cached set, not the filtered subset.
-        if ((bool) phorest_reviews_get_setting('enable_jsonld', true)) {
-            self::render_jsonld($reviews, $agg);
+        if ($total_pages > 1) {
+            $base = add_query_arg([
+                'pr_page'   => '%#%',
+                'pr_staff'  => $staff_filter ?: false,
+                'pr_rating' => $rating_filter ?: false,
+            ], remove_query_arg('pr_page'));
+            $base = str_replace('%25%23%25', '%#%', $base);
+            $links = paginate_links([
+                'base'      => $base,
+                'format'    => '',
+                'current'   => $current_page,
+                'total'     => $total_pages,
+                'mid_size'  => 2,
+                'prev_text' => '← Previous',
+                'next_text' => 'Next →',
+                'type'      => 'list',
+            ]);
+            if ($links) {
+                echo '<nav class="phorest-reviews-pagination" aria-label="Reviews pages">' . wp_kses_post($links) . '</nav>';
+            }
+        }
+
+        if ((bool) phorest_reviews_get_setting('enable_jsonld', false)) {
+            self::render_jsonld($visible);
         }
 
         echo '</div>';
+        echo '</section>';
         return (string) ob_get_clean();
     }
 
@@ -183,89 +235,101 @@ class Phorest_Reviews_Render
      */
     private static function render_card(array $review, bool $detailed = false): void
     {
-        $stars    = self::stars_html((int) $review['rating']);
-        $name     = self::display_name($review['clientFirstName'], $review['clientLastName']);
-        $staff    = self::display_staff($review['staffFirstName'], $review['staffLastName']);
-        $text     = $review['text'];
-        $text_esc = esc_html($text);
-        // Preserve paragraphs (\r\n\r\n) in detailed view.
+        $stars      = self::stars_html((int) $review['rating']);
+        $name       = self::display_name($review['clientFirstName'], $review['clientLastName']);
+        $staff      = self::display_staff($review['staffFirstName'], $review['staffLastName']);
+        $text       = trim((string) $review['text']);
+        $review_date = self::format_date($review['reviewDate']);
+        $visit_date  = self::format_date($review['visitDate']);
+        $review_id   = sanitize_html_class((string) $review['reviewId']);
+
         if ($detailed) {
-            $text_esc = str_replace(["\r\n\r\n", "\n\n"], '</p><p>', $text_esc);
-            $text_esc = '<p>' . $text_esc . '</p>';
+            $paragraphs = preg_split('/(?:\r\n|\r|\n){2,}/', $text);
+            $safe       = [];
+            foreach (is_array($paragraphs) ? $paragraphs : [$text] as $paragraph) {
+                $safe[] = '<p>' . nl2br(esc_html(trim($paragraph))) . '</p>';
+            }
+            $text_html = implode('', $safe);
         } else {
-            // Strip homepage — show a snippet.
-            $snippet = function_exists('mb_substr')
-                ? mb_substr($text, 0, 180)
-                : substr($text, 0, 180);
-            if (mb_strlen($text) > 180) {
+            $snippet = self::text_substr($text, 0, 210);
+            if (self::text_length($text) > 210) {
                 $snippet .= '…';
             }
-            $text_esc = esc_html($snippet);
+            $text_html = esc_html($snippet);
         }
 
-        $date = self::format_date($review['reviewDate']);
-
-        echo '<article class="phorest-review" data-rating="' . esc_attr((string) $review['rating']) . '">';
-        echo '<div class="phorest-review__stars" aria-label="' . esc_attr((string) $review['rating']) . ' star">' . $stars . '</div>';
-        echo '<blockquote class="phorest-review__text">' . $text_esc . '</blockquote>';
+        echo '<article id="review-' . esc_attr($review_id) . '" class="phorest-review' . ($detailed ? ' phorest-review--detailed' : ' phorest-review--widget') . '" data-rating="' . esc_attr((string) $review['rating']) . '">';
+        echo '<header class="phorest-review__header">';
+        echo '<div class="phorest-review__stars" aria-label="' . esc_attr((string) $review['rating']) . ' out of 5 stars">' . $stars . '</div>';
+        if ($visit_date) {
+            echo '<span class="phorest-review__verified">Verified visit</span>';
+        }
+        echo '</header>';
+        echo '<blockquote class="phorest-review__text">' . $text_html . '</blockquote>';
         echo '<footer class="phorest-review__meta">';
         echo '<span class="phorest-review__author">' . esc_html($name) . '</span>';
         if ($staff) {
-            echo '<span class="phorest-review__staff">with ' . esc_html($staff) . '</span>';
+            echo '<span class="phorest-review__staff">Appointment with ' . esc_html($staff) . '</span>';
         }
-        if ($date) {
-            echo '<span class="phorest-review__date">' . esc_html($date) . '</span>';
+        if ($review_date) {
+            echo '<time class="phorest-review__date" datetime="' . esc_attr($review['reviewDate']) . '">' . esc_html($review_date) . '</time>';
         }
         echo '</footer>';
         echo '</article>';
     }
 
     /**
-     * Honest schema.org JSON-LD.
+     * Honest schema.org JSON-LD for visible review content.
      *
-     * AggregateRating is computed from the actual cached reviews. Each
-     * visible Review entry cites the real author (first name + last initial)
-     * and reviewBody. No fabricated Google star count, no platform cross-claim.
+     * This intentionally emits an ItemList of real Review nodes and omits
+     * AggregateRating. Google does not show self-serving review rich results
+     * for LocalBusiness/HairSalon pages; publishing a synthetic Product solely
+     * to attach stars would be misleading. The on-page aggregate remains
+     * visible to humans and is computed from the complete Phorest dataset.
      *
-     * @param array $reviews Full cached set.
-     * @param array $agg     Aggregate {average, count}.
+     * @param array $reviews Reviews visible on the current page.
      */
-    private static function render_jsonld(array $reviews, array $agg): void
+    private static function render_jsonld(array $reviews): void
     {
-        $items = [];
-        $capped = array_slice($reviews, 0, 20);
-        foreach ($capped as $r) {
+        $items    = [];
+        $position = 1;
+        foreach (array_slice($reviews, 0, 20) as $r) {
             if (empty($r['text']) || $r['rating'] < 1) {
                 continue;
             }
             $items[] = [
-                '@type'         => 'Review',
-                'author'        => [
-                    '@type' => 'Person',
-                    'name'  => self::display_name($r['clientFirstName'], $r['clientLastName']),
+                '@type'    => 'ListItem',
+                'position' => $position++,
+                'item'     => [
+                    '@type'        => 'Review',
+                    'itemReviewed' => [
+                        '@type' => 'HairSalon',
+                        'name'  => get_bloginfo('name'),
+                        'url'   => home_url('/'),
+                    ],
+                    'author'       => [
+                        '@type' => 'Person',
+                        'name'  => self::display_name($r['clientFirstName'], $r['clientLastName']),
+                    ],
+                    'reviewRating' => [
+                        '@type'       => 'Rating',
+                        'ratingValue' => (string) $r['rating'],
+                        'bestRating'  => '5',
+                        'worstRating' => '1',
+                    ],
+                    'reviewBody'    => $r['text'],
+                    'datePublished' => $r['reviewDate'],
                 ],
-                'reviewRating'  => [
-                    '@type'       => 'Rating',
-                    'ratingValue' => (string) $r['rating'],
-                    'bestRating'  => '5',
-                    'worstRating' => '1',
-                ],
-                'reviewBody'    => $r['text'],
-                'datePublished' => $r['reviewDate'],
             ];
         }
+        if ([] === $items) {
+            return;
+        }
         $payload = [
-            '@context'         => 'https://schema.org',
-            '@type'            => 'Product',
-            'name'             => get_bloginfo('name') . ' salon services',
-            'aggregateRating'  => [
-                '@type'       => 'AggregateRating',
-                'ratingValue' => number_format((float) $agg['average'], 1, '.', ''),
-                'reviewCount' => (string) $agg['count'],
-                'bestRating'  => '5',
-                'worstRating' => '1',
-            ],
-            'review'           => $items,
+            '@context'        => 'https://schema.org',
+            '@type'           => 'ItemList',
+            'name'            => 'Client reviews for ' . get_bloginfo('name'),
+            'itemListElement' => $items,
         ];
         echo '<script type="application/ld+json" class="phorest-reviews-jsonld">'
            . wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
@@ -318,6 +382,9 @@ class Phorest_Reviews_Render
                 'display' => self::display_staff($r['staffFirstName'], $r['staffLastName']) ?: 'Stylist',
             ];
         }
+        usort($out, function (array $a, array $b): int {
+            return strcasecmp($a['display'], $b['display']);
+        });
         return $out;
     }
 
@@ -350,9 +417,9 @@ class Phorest_Reviews_Render
         }
         // Only title-case if the original is all uppercase (no lowercase letters).
         if (strtoupper($s) === $s && preg_match('/[A-Z]/', $s)) {
-            // Unicode-safe title case, then restore likely apostrophes.
-            $t = mb_convert_case($s, MB_CASE_TITLE, 'UTF-8');
-            return $t;
+            return function_exists('mb_convert_case')
+                ? mb_convert_case($s, MB_CASE_TITLE, 'UTF-8')
+                : ucwords(strtolower($s));
         }
         return $s;
     }
@@ -375,7 +442,33 @@ class Phorest_Reviews_Render
         if ('' === $last) {
             return $first;
         }
-        return $first . ' ' . mb_substr($last, 0, 1) . '.';
+        return $first . ' ' . self::text_substr($last, 0, 1) . '.';
+    }
+
+    /**
+     * UTF-8 aware string length with a core-PHP fallback.
+     *
+     * @param string $text
+     * @return int
+     */
+    private static function text_length(string $text): int
+    {
+        return function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
+    }
+
+    /**
+     * UTF-8 aware substring with a core-PHP fallback.
+     *
+     * @param string $text
+     * @param int    $start
+     * @param int    $length
+     * @return string
+     */
+    private static function text_substr(string $text, int $start, int $length): string
+    {
+        return function_exists('mb_substr')
+            ? mb_substr($text, $start, $length, 'UTF-8')
+            : substr($text, $start, $length);
     }
 
     /**
@@ -440,16 +533,22 @@ class Phorest_Reviews_Render
         if (null !== $url) {
             return $url;
         }
+        $slug_page = get_page_by_path('reviews');
+        if ($slug_page instanceof WP_Post) {
+            $url = get_permalink($slug_page->ID);
+            return $url ?: home_url('/reviews/');
+        }
+
         $pages = get_pages();
         if ($pages) {
             foreach ($pages as $page) {
                 if (false !== stripos($page->post_content ?? '', 'phorest_reviews_page')) {
                     $url = get_permalink($page->ID);
-                    return $url ?: home_url('/');
+                    return $url ?: home_url('/reviews/');
                 }
             }
         }
-        $url = home_url('/');
+        $url = home_url('/reviews/');
         return $url;
     }
 }

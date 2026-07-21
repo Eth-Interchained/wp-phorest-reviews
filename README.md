@@ -2,12 +2,12 @@
 
 **Stream live client reviews from your Phorest salon POS into WordPress.**
 
-Homepage reviews strip + full `/reviews` page, pulled read-only from the Phorest 3rd-party API. Built for [Mint on the Avenue](https://www.phorest.com/salon/mintontheavenue) (Winter Park, FL) and reusable by any Phorest salon.
+Atelier-themed landing widget + full paginated `/reviews` page, pulled read-only from the Phorest 3rd-party API. Built for [Mint on the Avenue](https://www.phorest.com/salon/mintontheavenue) (Winter Park, FL) and reusable by any Phorest salon.
 
 - **Read-only.** Pulls reviews only — no booking writeback, no payments (Phorest doesn't expose PhorestPay via the API anyway).
-- **Resilient.** Transient cache + last-good snapshot. The site never blanks when Phorest is unreachable.
-- **Encrypted at rest.** Credentials are AES-256-GCM encrypted in `wp_options`; the key lives in a PHP-guarded file under `wp-content/` (survives plugin updates, can't be fetched over HTTP).
-- **Honest SEO.** schema.org `Review` + `AggregateRating` computed from your actual Phorest reviews — never a fabricated Google star count.
+- **Resilient.** Fresh cache → last-good snapshot → the Atelier theme's original hardcoded review block. The site never blanks when Phorest is unreachable.
+- **Encrypted at rest.** Credentials are AES-256-GCM encrypted in `wp_options`; the key lives in a PHP-guarded data file under `wp-content/` (survives plugin updates, direct HTTP requests exit before the key bytes).
+- **Honest SEO.** Optional schema.org ItemList of the visible reviews. No self-serving LocalBusiness AggregateRating rich-result claim.
 - **PHP 7.4 / 8.1 / 8.3.** No Composer, no Python, no external runtime — pure WordPress.
 
 ## Install
@@ -25,7 +25,7 @@ Homepage reviews strip + full `/reviews` page, pulled read-only from the Phorest
 Place shortcodes on any page or post:
 
 ```html
-<!-- Homepage strip: newest 4 reviews at 4★ or above -->
+<!-- Atelier landing widget: newest 3 reviews at 4★ or above -->
 [phorest_reviews_home]
 
 <!-- Override count + minimum rating -->
@@ -35,14 +35,16 @@ Place shortcodes on any page or post:
 [phorest_reviews_page]
 ```
 
-Create a WordPress page called "Reviews", drop in `[phorest_reviews_page]`, publish. The homepage shortcode links to it automatically.
+On any theme, create a WordPress page called "Reviews", use the slug `/reviews`, drop in `[phorest_reviews_page]`, and publish. **With the supplied Atelier v2.9.69 theme, leave the page body blank**: `page-reviews.php` loads the live plugin surface automatically and falls back to the original hardcoded reviews if the plugin is unavailable. The landing widget links to `/reviews` automatically.
+
+For classic widget areas, add **Phorest Reviews — Landing Widget** under **Appearance → Widgets**. Page builders can use `[phorest_reviews_home]` instead; both render the same surface.
 
 ## Where credentials live
 
 | Where | What |
 |---|---|
 | `wp_options` (`phorest_reviews_settings`) | AES-256-GCM ciphertext of `api_user` + `api_password` |
-| `wp-content/.phorest-reviews-key.php` | The 32-byte decryption key, guarded by `<?php die(403)` so a direct HTTP hit returns 403 |
+| `wp-content/.phorest-reviews-key.php` | The 32-byte decryption key in a versioned data payload, preceded by `<?php exit; ?>`; the plugin reads it as data and never includes it |
 
 **Threat model (honest):**
 - ✅ Defends against **DB-only attackers** (SQL injection, DB backup leaks, plugin exports) — ciphertext in `wp_options` is useless without the key file.
@@ -56,14 +58,14 @@ Phorest's API rate limit is 100 rps — generous. A full pull of Mint's 914 revi
 
 ## No webhooks
 
-Phorest's API does not support webhooks (per their docs). The plugin polls on cache expiry + offers a manual "Refresh now" button. A WP cron warm is available via the `phorest_reviews_refresh` hook if you want to keep the cache hot off the request path.
+Phorest's API does not support webhooks (per their docs). The plugin schedules a WordPress cron refresh every 30 minutes, also refreshes on cache miss, and offers a manual "Refresh now" button. Failed refreshes preserve and serve the last-good snapshot.
 
 ## Honesty rules
 
 Carried over from the [salon-platform](https://github.com/Eth-Interchained/salon-platform):
 
-- **No fabricated ratings.** `AggregateRating` is computed from your real cached Phorest reviews.
-- **No false platform attribution.** For Mint, the `facebookReview` / `twitterReview` flags are all `false` — we do not claim any Google/Facebook cross-posting in JSON-LD. If your salon uses Phorest's Online Reputation social auto-boost, verify per-review source before claiming it.
+- **No fabricated ratings.** The visible average is computed from the complete cached Phorest dataset. JSON-LD omits `AggregateRating` because Google disallows self-serving LocalBusiness review rich results.
+- **No false platform attribution.** For Mint, the sampled `facebookReview` / `twitterReview` flags are `false` — we do not claim any Google/Facebook cross-posting. If a salon uses Phorest's Online Reputation social auto-boost, verify per-review source before claiming it.
 - **Real review text only.** Never invented or paraphrased.
 - **Privacy-friendly author display.** First name + last initial ("Lizzette R.").
 
@@ -84,7 +86,7 @@ GitHub Actions lints PHP 7.4 / 8.1 / 8.3 on every push and PR.
 
 ## License
 
-BUSL-1.1 — see [LICENSE](LICENSE). Source-available; production use permitted.
+BUSL-1.1 — see [LICENSE](LICENSE). Production use is governed by the license terms.
 
 ## Related
 
